@@ -1,46 +1,114 @@
-# Getting Started with Create React App
+# Virtual Rock Band
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A React-based virtual music player that allows you to create and play musical sequences using WebSocket communication and Tone.js.
+
+## Features
+
+- Real-time music playback using Tone.js
+- Multiple virtual instruments (piano, guitar, drums)
+- WebSocket-based communication for sequence playback
+- Support for complex musical timing and notation
+- Adjustable BPM and velocity controls
+
+## System Architecture
+
+### Components Overview
+```
+┌─────────────┐    ┌──────────────┐    ┌────────────────┐
+│   MCP       │    │   WebSocket  │    │  React App     │
+│   Server    │───▶│   Server     │───▶│  (Tone.js)     │
+└─────────────┘    └──────────────┘    └────────────────┘
+```
+
+The application uses a three-tier architecture:
+
+1. **MCP Server (Port 3001)**
+   - Handles sequence validation using Zod schemas
+   - Formats and forwards sequences to WebSocket server
+   - Provides a standardized interface for sending musical sequences
+
+2. **WebSocket Server (Port 3002)**
+   - Manages real-time communication
+   - Broadcasts sequences to connected clients
+   - Handles client connections and disconnections
+
+3. **React Frontend**
+   - Uses WebSocket context for real-time updates
+   - Processes sequences using Tone.js
+   - Manages audio playback and visualization
+
+### Message Flow
+1. Client sends sequence to MCP server
+2. MCP validates and formats the sequence
+3. WebSocket server broadcasts the sequence
+4. React components receive and process the sequence
+5. Tone.js handles audio synthesis and playback
+
+### WebSocket Messages
+```typescript
+// Sequence message format
+{
+  type: 'sequence',
+  sequence: {
+    bpm: number,
+    piano: Note[],
+    guitar: Note[],
+    drums: DrumHit[]
+  }
+}
+```
+
+## Getting Started
+
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Start the development server:
+```bash
+npm start
+```
+
+3. Start the MCP server:
+```bash
+npm run start:mcp
+```
+
+## Usage
+
+The application accepts musical sequences in the following format:
+
+```javascript
+{
+  "bpm": 120,
+  "piano": [
+    { "note": "C4", "time": 0, "duration": "4n", "velocity": 0.7 }
+  ],
+  "guitar": [
+    { "note": "C3", "time": "0:0:2", "duration": "8n", "velocity": 0.8 }
+  ],
+  "drums": [
+    { "piece": "Kick", "time": 0, "velocity": 0.9 }
+  ]
+}
+```
+
+- `time` can be specified in beats (0, 1, 2) or Tone.js transport notation ("0:0:2")
+- `duration` uses Tone.js notation ("4n" for quarter note, "8n" for eighth note)
+- `velocity` controls the volume/intensity (0.0 to 1.0)
+
+## Technical Stack
+
+- React
+- TypeScript
+- Tone.js for audio synthesis
+- WebSocket for real-time communication
+- Model Context Protocol (MCP) for sequence handling
 
 ## Available Scripts
 
-In the project directory, you can run:
-
-### `npm start`
-
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
-
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
-
-### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
-
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+- `npm start`: Run the React development server
+- `npm run start:mcp`: Start the MCP server for sequence handling
+- `npm test`: Run tests
+- `npm run build`: Create production build

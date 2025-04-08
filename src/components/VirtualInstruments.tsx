@@ -8,6 +8,7 @@ import { playlist, PlaylistItem } from '../data/Playlist';
 import { rockSequence } from '../sequences/RockSequence';
 import { stompRockSequence } from '../sequences/StompRockSequence';
 import AudioVisualizer from './AudioVisualizer';
+import { useWebSocket } from '../contexts/WebSocketContext';
 
 // Piano note configuration
 const createPianoNotes = () => {
@@ -70,8 +71,8 @@ const instruments = {
           envelope: {
             attack: 0.001,
             decay: 0.4,
-            sustain: 0.01,
-            release: 1.4,
+            sustain: 0,
+            release: 0.4
           }
         }).toDestination()
       },
@@ -95,7 +96,8 @@ const instruments = {
           envelope: {
             attack: 0.001,
             decay: 0.1,
-            release: 0.01
+            sustain: 0,
+            release: 0.1
           },
           harmonicity: 5.1,
           modulationIndex: 32,
@@ -109,8 +111,9 @@ const instruments = {
         synth: new Tone.MetalSynth({
           envelope: {
             attack: 0.001,
-            decay: 1,
-            release: 3
+            decay: 0.5,
+            sustain: 0,
+            release: 0.5
           },
           harmonicity: 8.5,
           modulationIndex: 40,
@@ -127,26 +130,173 @@ const VirtualInstruments: React.FC = () => {
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
   const [activeNotes, setActiveNotes] = useState<Set<string>>(new Set());
   const [activeDrumPiece, setActiveDrumPiece] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isAudioReady, setIsAudioReady] = useState<boolean>(false);
+  const { status, sequence, ws, clientId } = useWebSocket();
 
+  // Initialize Tone.js
   useEffect(() => {
-    musicPlayerRef.current = new MusicPlayer();
-    
-    // Initialize Tone.js on first user interaction
     const startAudio = async () => {
-      await Tone.start();
-      document.removeEventListener('click', startAudio);
+      try {
+        await Tone.start();
+        console.log('[Tone.js] Audio context started');
+        setIsAudioReady(true);
+      } catch (error) {
+        console.error('[Tone.js] Failed to start audio context:', error);
+      }
     };
 
-    document.addEventListener('click', startAudio);
+    // Try to start audio context
+    startAudio();
+
+    // Also set up event listeners for user interaction
+    const handleInteraction = async () => {
+      if (Tone.context.state !== 'running') {
+        await startAudio();
+      }
+      document.removeEventListener('click', handleInteraction);
+      document.removeEventListener('touchstart', handleInteraction);
+      document.removeEventListener('keydown', handleInteraction);
+    };
+
+    document.addEventListener('click', handleInteraction);
+    document.addEventListener('touchstart', handleInteraction);
+    document.addEventListener('keydown', handleInteraction);
+
+    musicPlayerRef.current = new MusicPlayer();
 
     return () => {
-      document.removeEventListener('click', startAudio);
+      document.removeEventListener('click', handleInteraction);
+      document.removeEventListener('touchstart', handleInteraction);
+      document.removeEventListener('keydown', handleInteraction);
       if (musicPlayerRef.current) {
         musicPlayerRef.current.stop();
       }
     };
   }, []);
+
+  // Monitor Tone.js state
+  useEffect(() => {
+    const checkAudioState = () => {
+      setIsAudioReady(Tone.context.state === 'running');
+    };
+
+    // Check immediately
+    checkAudioState();
+
+    // Then check periodically
+    const intervalId = setInterval(checkAudioState, 1000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  // Handle incoming sequences from WebSocket
+  useEffect(() => {
+    console.log('[VirtualInstruments] Sequence changed:', sequence);
+    console.log('[VirtualInstruments] Tone.context.state:', Tone.context.state);
+    
+    if (sequence && Tone.context.state === 'running') {
+      console.log('[VirtualInstruments] Attempting to play sequence:', sequence);
+      
+      // Ensure we're in the right context state
+      const playSequence = async () => {
+        try {
+          // Make sure Tone.js is started
+          await Tone.start();
+          
+          // Extract sequence data
+          const sequenceData = sequence;
+          console.log('[VirtualInstruments] Playing sequence data:', sequenceData);
+          
+          if (!sequenceData.piano && !sequenceData.guitar && !sequenceData.drums) {
+            console.error('[VirtualInstruments] Invalid sequence data - missing instruments:', sequenceData);
+            return;
+          }
+
+          const startTime = Tone.now();
+
+          // Play piano notes
+          if (sequenceData.piano) {
+            sequenceData.piano.forEach(({ note, time, duration = '8n', velocity = 0.7 }: { note: string; time: string | number; duration?: string; velocity?: number }) => {
+              try {
+                const noteTime = startTime + (typeof time === 'string' ? Tone.Time(time).toSeconds() : time);
+                console.log(`[VirtualInstruments] Playing piano note: ${note} at time: ${noteTime}`);
+                
+                // Use a safer approach for scheduling
+                if (noteTime > Tone.now()) {
+                  instruments.piano.synth.triggerAttackRelease(note, duration, noteTime, velocity);
+                } else {
+                  // If the time has already passed, play immediately
+                  instruments.piano.synth.triggerAttackRelease(note, duration, undefined, velocity);
+                }
+                
+                setTimeout(() => highlightNote(note, duration), 
+                  Math.max(0, (noteTime - startTime) * 1000));
+              } catch (error) {
+                console.error(`[VirtualInstruments] Error playing piano note ${note}:`, error);
+              }
+            });
+          }
+
+          // Play guitar notes
+          if (sequenceData.guitar) {
+            sequenceData.guitar.forEach(({ note, time, duration = '4n', velocity = 0.7 }: { note: string; time: string | number; duration?: string; velocity?: number }) => {
+              try {
+                const noteTime = startTime + (typeof time === 'string' ? Tone.Time(time).toSeconds() : time);
+                console.log(`[VirtualInstruments] Playing guitar note: ${note} at time: ${noteTime}`);
+                
+                // Use a safer approach for scheduling
+                if (noteTime > Tone.now()) {
+                  instruments.guitar.synth.triggerAttackRelease(note, duration, noteTime, velocity);
+                } else {
+                  // If the time has already passed, play immediately
+                  instruments.guitar.synth.triggerAttackRelease(note, duration, undefined, velocity);
+                }
+                
+                setTimeout(() => highlightNote(note, duration),
+                  Math.max(0, (noteTime - startTime) * 1000));
+              } catch (error) {
+                console.error(`[VirtualInstruments] Error playing guitar note ${note}:`, error);
+              }
+            });
+          }
+
+          // Play drum hits
+          if (sequenceData.drums) {
+            sequenceData.drums.forEach(({ piece, time, velocity = 0.7 }: { piece: string; time: string | number; velocity?: number }) => {
+              try {
+                const noteTime = startTime + (typeof time === 'string' ? Tone.Time(time).toSeconds() : time);
+                const drumPiece = instruments.drums.pieces.find(p => p.name === piece);
+                if (drumPiece) {
+                  console.log(`[VirtualInstruments] Playing drum piece: ${piece} at time: ${noteTime}`);
+                  
+                  // Use a safer approach for scheduling
+                  if (noteTime > Tone.now()) {
+                    // For drums, use a very short duration to prevent release issues
+                    drumPiece.synth.triggerAttackRelease(drumPiece.sound, '32n', noteTime, velocity);
+                  } else {
+                    // If the time has already passed, play immediately
+                    drumPiece.synth.triggerAttackRelease(drumPiece.sound, '32n', undefined, velocity);
+                  }
+                  
+                  setTimeout(() => highlightDrum(piece),
+                    Math.max(0, (noteTime - startTime) * 1000));
+                }
+              } catch (error) {
+                console.error(`[VirtualInstruments] Error playing drum piece ${piece}:`, error);
+              }
+            });
+          }
+        } catch (error) {
+          console.error('[VirtualInstruments] Error playing sequence:', error);
+        }
+      };
+
+      playSequence();
+    } else if (sequence && Tone.context.state !== 'running') {
+      console.warn('[VirtualInstruments] Cannot play sequence: Tone.js not started. Please interact with the page.');
+    }
+  }, [sequence]);
 
   const highlightNote = (note: string, duration: string) => {
     setActiveNotes(prev => new Set(prev).add(note));
@@ -268,6 +418,21 @@ const VirtualInstruments: React.FC = () => {
       position: 'relative',
       overflow: 'hidden'
     }}>
+      {!isAudioReady && (
+        <Box sx={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bgcolor: 'warning.main',
+          color: 'warning.contrastText',
+          p: 1,
+          textAlign: 'center',
+          zIndex: 1000
+        }}>
+          Click or tap anywhere to enable audio
+        </Box>
+      )}
       <AudioVisualizer isPlaying={isPlaying} />
       <Box sx={{ 
         display: 'flex', 
@@ -611,6 +776,9 @@ const VirtualInstruments: React.FC = () => {
           </Paper>
         </Box>
       </Box>
+      {/* <Typography variant="body1" gutterBottom>
+        Connection Status: {status ? 'Connected' : 'Disconnected'}
+      </Typography> */}
     </Box>
   );
 };
